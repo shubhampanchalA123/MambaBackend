@@ -33,6 +33,10 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
   // Mobile number fields
   countryCode: {
     type: String,
@@ -62,6 +66,15 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: false,
     trim: true
+  },
+  dateOfBirth: {
+    type: Date,
+    required: true
+  },
+  gender: {
+    type: String,
+    enum: ['Male', 'Female', 'Other'],
+    required: true
   }
 }, {
   timestamps: true

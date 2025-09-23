@@ -14,7 +14,7 @@ const generateToken = (id) => {
 // Register new user (with OTP)
 const registerUser = async (req, res) => {
   try {
-    const { username, surname, email, password, userRole, countryCode, mobileNumber, avatar } = req.body;
+    const { username, surname, email, password, userRole, countryCode, mobileNumber, avatar, dateOfBirth, gender } = req.body;
 
     // Check if user exists
     const userExists = await User.findOne({ email });
@@ -46,7 +46,9 @@ const registerUser = async (req, res) => {
       isVerified: false,
       countryCode,
       mobileNumber,
-      avatar
+      avatar,
+      dateOfBirth,
+      gender
     });
 
     res.status(201).json({
@@ -94,12 +96,14 @@ const verifyOTP = async (req, res) => {
         username: user.username,
         surname: user.surname,
         email: user.email,
-        role: user.role,
-        userType: user.userType,
+        userRole: user.userRole,
         isVerified: user.isVerified,
+        isActive: user.isActive,
         countryCode: user.countryCode,
         mobileNumber: user.mobileNumber,
-        avatar: user.avatar
+        avatar: user.avatar,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender
       }
     });
   } catch (error) {
@@ -175,12 +179,14 @@ const loginUser = async (req, res) => {
         username: user.username,
         surname: user.surname,
         email: user.email,
-        role: user.role,
-        userType: user.userType,
+        userRole: user.userRole,
         isVerified: user.isVerified,
+        isActive: user.isActive,
         countryCode: user.countryCode,
         mobileNumber: user.mobileNumber,
-        avatar: user.avatar
+        avatar: user.avatar,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender
       }
     });
   } catch (error) {
@@ -284,12 +290,13 @@ const resetPassword = async (req, res) => {
         username: user.username,
         surname: user.surname,
         email: user.email,
-        role: user.role,
-        userType: user.userType,
+        userRole: user.userRole,
         isVerified: user.isVerified,
         countryCode: user.countryCode,
         mobileNumber: user.mobileNumber,
-        avatar: user.avatar
+        avatar: user.avatar,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender
       }
     });
   } catch (error) {
@@ -312,18 +319,97 @@ const getUserProfile = async (req, res) => {
         username: user.username,
         surname: user.surname,
         email: user.email,
-        role: user.role,
-        userType: user.userType,
+        userRole: user.userRole,
         isVerified: user.isVerified,
+        isActive: user.isActive,
         countryCode: user.countryCode,
         mobileNumber: user.mobileNumber,
         avatar: user.avatar || null, // Ensure avatar is always included, even if null
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
       }
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Update user profile
+const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { username, surname, email, countryCode, mobileNumber, dateOfBirth, gender } = req.body;
+
+    // Find the user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Check if email is being updated and if it's already taken by another user
+    if (email && email !== user.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists) {
+        return res.status(400).json({ message: 'Email already exists' });
+      }
+    }
+
+    // Validate mobile number format if provided
+    if (mobileNumber && !/^\d{10}$/.test(mobileNumber)) {
+      return res.status(400).json({ message: 'Mobile number must be 10 digits' });
+    }
+
+    // Validate country code format if provided
+    if (countryCode && !/^\+\d{1,4}$/.test(countryCode)) {
+      return res.status(400).json({ message: 'Country code must be in format +XX (e.g., +91, +1)' });
+    }
+
+    // Prepare update object with only provided fields
+    const updateFields = {};
+    if (username !== undefined) updateFields.username = username;
+    if (surname !== undefined) updateFields.surname = surname;
+    if (email !== undefined) updateFields.email = email;
+    if (countryCode !== undefined) updateFields.countryCode = countryCode;
+    if (mobileNumber !== undefined) updateFields.mobileNumber = mobileNumber;
+    if (dateOfBirth !== undefined) updateFields.dateOfBirth = dateOfBirth;
+    if (gender !== undefined) updateFields.gender = gender;
+
+    // Handle avatar upload if file is provided
+    if (req.file) {
+      updateFields.avatar = `/uploads/avatars/${req.file.filename}`;
+    }
+
+    // Update user
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateFields,
+      { new: true, runValidators: true }
+    );
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: {
+        _id: updatedUser._id,
+        username: updatedUser.username,
+        surname: updatedUser.surname,
+        email: updatedUser.email,
+        userRole: updatedUser.userRole,
+        isVerified: updatedUser.isVerified,
+        isActive: updatedUser.isActive,
+        countryCode: updatedUser.countryCode,
+        mobileNumber: updatedUser.mobileNumber,
+        avatar: updatedUser.avatar || null,
+        dateOfBirth: updatedUser.dateOfBirth,
+        gender: updatedUser.gender,
+        createdAt: updatedUser.createdAt,
+        updatedAt: updatedUser.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 };
 
@@ -344,6 +430,10 @@ const logoutUser = async (req, res) => {
   }
 };
 
+
+
+
+
 module.exports = {
   registerUser,
   verifyOTP,
@@ -352,5 +442,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  updateUserProfile,
   logoutUser
 };

@@ -8,9 +8,11 @@ const {
   forgotPassword,
   resetPassword,
   getUserProfile,
+  updateUserProfile,
   logoutUser
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
+const upload = require('../middleware/fileUpload');
 
 // Authentication routes
 router.post('/register', registerUser);
@@ -24,6 +26,7 @@ router.post('/reset-password', resetPassword);
 
 // Protected routes
 router.get('/profile', protect, getUserProfile);
+router.put('/update-profile', protect, upload.single('avatar'), updateUserProfile);
 router.post('/logout', protect, logoutUser);
 
 module.exports = router;
