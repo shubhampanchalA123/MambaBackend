@@ -19,11 +19,22 @@ const registerUser = async (req, res) => {
     // Check if user exists
     const userExists = await User.findOne({ email });
     if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
+      if (userExists.isVerified) {
+        return res.status(400).json({
+          statusCode: 400,
+          success: false,
+          message: 'User already exists',
+          data: null
+        });
+      } else {
+        // Delete unverified user and any existing OTP
+        await User.deleteOne({ email });
+        await OTP.deleteMany({ email });
+      }
     }
 
     // Generate OTP
-    const otp = otpGenerator.generate(6, {
+    const otp = otpGenerator.generate(4, {
       digits: true,
       lowerCaseAlphabets: false,
       upperCaseAlphabets: false,
@@ -51,15 +62,25 @@ const registerUser = async (req, res) => {
       gender
     });
 
-    res.status(201).json({
+    return res.status(201).json({
+      statusCode: 201,
+      success: true,
       message: 'OTP sent to your email. Please verify to complete registration.',
-      email: user.email,
-      userId: user._id
+      data: {
+        userId: user._id,
+        email: user.email
+      }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'Registration failed',
+      error: error.message
+    });
   }
 };
+ 
 
 // Verify OTP
 const verifyOTP = async (req, res) => {
@@ -69,13 +90,23 @@ const verifyOTP = async (req, res) => {
     // Find the OTP
     const otpRecord = await OTP.findOne({ email, otp });
     if (!otpRecord) {
-      return res.status(400).json({ message: 'Invalid OTP' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid OTP',
+        data: null
+      });
     }
 
     // Check if OTP is expired
     if (Date.now() > otpRecord.createdAt.getTime() + 5 * 60 * 1000) {
       await OTP.deleteOne({ email });
-      return res.status(400).json({ message: 'OTP has expired' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'OTP has expired',
+        data: null
+      });
     }
 
     // Update user as verified
@@ -88,28 +119,38 @@ const verifyOTP = async (req, res) => {
     const user = await User.findOne({ email });
     const token = generateToken(user._id);
 
-    res.json({
+    return res.status(200).json({
+      statusCode: 200,
+      success: true,
       message: 'Email verified successfully',
-      token,
-      user: {
-        _id: user._id,
-        username: user.username,
-        surname: user.surname,
-        email: user.email,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        isActive: user.isActive,
-        countryCode: user.countryCode,
-        mobileNumber: user.mobileNumber,
-        avatar: user.avatar,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender
+      data: {
+        token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          surname: user.surname,
+          email: user.email,
+          userRole: user.userRole,
+          isVerified: user.isVerified,
+          isActive: user.isActive,
+          countryCode: user.countryCode,
+          mobileNumber: user.mobileNumber,
+          avatar: user.avatar,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender
+        }
       }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'OTP verification failed',
+      error: error.message
+    });
   }
 };
+
 
 // Resend OTP
 const resendOTP = async (req, res) => {
@@ -118,15 +159,25 @@ const resendOTP = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({
+        statusCode: 404,
+        success: false,
+        message: 'User not found',
+        data: null
+      });
     }
 
-    if (user.isVerified) {
-      return res.status(400).json({ message: 'User already verified' });
-    }
+    // if (user.isVerified) {
+    //   return res.status(400).json({
+    //     statusCode: 400,
+    //     success: false,
+    //     message: 'User already verified',
+    //     data: null
+    //   });
+    // }
 
     // Generate new OTP
-    const otp = otpGenerator.generate(6, {
+    const otp = otpGenerator.generate(4, {
       digits: true,
       lowerCaseAlphabets: false,
       upperCaseAlphabets: false,
@@ -140,59 +191,107 @@ const resendOTP = async (req, res) => {
     // Send new OTP email
     await sendOTPEmail(email, otp);
 
-    res.json({ message: 'New OTP sent to your email' });
+    return res.status(200).json({
+      statusCode: 200,
+      success: true,
+      message: 'New OTP sent to your email',
+      data: {
+        email: user.email
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'Failed to resend OTP',
+      error: error.message
+    });
   }
 };
 
+ 
 // Login user
 const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
     // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid email or password',
+        data: null
+      });
     }
 
     // Check if user is verified
     if (!user.isVerified) {
-      return res.status(400).json({ message: 'Please verify your email first' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Please verify your email first',
+        data: null
+      });
+    }
+
+    // Check if role matches
+    if (user.userRole !== role) {
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid role for this user',
+        data: null
+      });
     }
 
     // Check password
     const isPasswordMatch = await user.comparePassword(password);
     if (!isPasswordMatch) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid email or password',
+        data: null
+      });
     }
 
     // Generate token
     const token = generateToken(user._id);
 
-    res.json({
+    return res.status(200).json({
+      statusCode: 200,
+      success: true,
       message: 'Login successful',
-      token,
-      user: {
-        _id: user._id,
-        username: user.username,
-        surname: user.surname,
-        email: user.email,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        isActive: user.isActive,
-        countryCode: user.countryCode,
-        mobileNumber: user.mobileNumber,
-        avatar: user.avatar,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender
+      data: {
+        token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          surname: user.surname,
+          email: user.email,
+          userRole: user.userRole,
+          isVerified: user.isVerified,
+          isActive: user.isActive,
+          countryCode: user.countryCode,
+          mobileNumber: user.mobileNumber,
+          avatar: user.avatar,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender
+        }
       }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'Login failed',
+      error: error.message
+    });
   }
 };
+
 
 // Forgot Password - Send OTP for password reset
 const forgotPassword = async (req, res) => {
@@ -202,16 +301,26 @@ const forgotPassword = async (req, res) => {
     // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'User not found with this email address' });
+      return res.status(404).json({
+        statusCode: 404,
+        success: false,
+        message: 'User not found with this email address',
+        data: null
+      });
     }
 
     // Check if user is verified
     if (!user.isVerified) {
-      return res.status(400).json({ message: 'Please verify your email first' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Please verify your email first',
+        data: null
+      });
     }
 
     // Generate OTP for password reset
-    const otp = otpGenerator.generate(6, {
+    const otp = otpGenerator.generate(4, {
       digits: true,
       lowerCaseAlphabets: false,
       upperCaseAlphabets: false,
@@ -229,13 +338,78 @@ const forgotPassword = async (req, res) => {
     // Send password reset email
     await sendPasswordResetEmail(email, otp);
 
-    res.json({
+    return res.status(200).json({
+      statusCode: 200,
+      success: true,
       message: 'Password reset OTP sent to your email',
-      email: user.email
+      data: {
+        email: user.email
+      }
     });
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+
+// Verify Password Reset OTP (without deleting it)
+const verifyPasswordResetOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    // Find the OTP
+    const otpRecord = await OTP.findOne({ email, otp });
+    if (!otpRecord) {
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid OTP',
+        data: null
+      });
+    }
+
+    // Check if OTP is for password reset
+    if (otpRecord.purpose !== 'password_reset') {
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid OTP for password reset',
+        data: null
+      });
+    }
+
+    // Check if OTP is expired (5 minutes)
+    if (Date.now() > otpRecord.createdAt.getTime() + 5 * 60 * 1000) {
+      await OTP.deleteOne({ email });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'OTP has expired',
+        data: null
+      });
+    }
+
+    return res.status(200).json({
+      statusCode: 200,
+      success: true,
+      message: 'OTP verified successfully',
+      data: {
+        email: email
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'OTP verification failed',
+      error: error.message
+    });
   }
 };
 
@@ -246,34 +420,59 @@ const resetPassword = async (req, res) => {
 
     // Validate input
     if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Password must be at least 6 characters long',
+        data: null
+      });
     }
 
     // Find the OTP
     const otpRecord = await OTP.findOne({ email, otp });
     if (!otpRecord) {
-      return res.status(400).json({ message: 'Invalid OTP' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid OTP',
+        data: null
+      });
     }
 
     // Check if OTP is for password reset
     if (otpRecord.purpose !== 'password_reset') {
-      return res.status(400).json({ message: 'Invalid OTP for password reset' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'Invalid OTP for password reset',
+        data: null
+      });
     }
 
     // Check if OTP is expired (5 minutes)
     if (Date.now() > otpRecord.createdAt.getTime() + 5 * 60 * 1000) {
       await OTP.deleteOne({ email });
-      return res.status(400).json({ message: 'OTP has expired' });
+      return res.status(400).json({
+        statusCode: 400,
+        success: false,
+        message: 'OTP has expired',
+        data: null
+      });
     }
 
     // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({
+        statusCode: 404,
+        success: false,
+        message: 'User not found',
+        data: null
+      });
     }
 
     // Update password
-    user.password = newPassword; // The pre-save hook will hash it
+    user.password = newPassword; // pre-save hook will hash
     await user.save();
 
     // Delete used OTP
@@ -282,38 +481,53 @@ const resetPassword = async (req, res) => {
     // Generate new token
     const token = generateToken(user._id);
 
-    res.json({
+    return res.status(200).json({
+      statusCode: 200,
+      success: true,
       message: 'Password reset successful',
-      token,
-      user: {
-        _id: user._id,
-        username: user.username,
-        surname: user.surname,
-        email: user.email,
-        userRole: user.userRole,
-        isVerified: user.isVerified,
-        countryCode: user.countryCode,
-        mobileNumber: user.mobileNumber,
-        avatar: user.avatar,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender
+      data: {
+        token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          surname: user.surname,
+          email: user.email,
+          userRole: user.userRole,
+          isVerified: user.isVerified,
+          countryCode: user.countryCode,
+          mobileNumber: user.mobileNumber,
+          avatar: user.avatar,
+          dateOfBirth: user.dateOfBirth,
+          gender: user.gender
+        }
       }
     });
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({
+      statusCode: 500,
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
   }
 };
+
 
 // Get user profile
 const getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).lean();
+
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
 
-    res.json({
+    return res.status(200).json({
+      success: true,
       user: {
         _id: user._id,
         username: user.username,
@@ -324,7 +538,7 @@ const getUserProfile = async (req, res) => {
         isActive: user.isActive,
         countryCode: user.countryCode,
         mobileNumber: user.mobileNumber,
-        avatar: user.avatar || null, // Ensure avatar is always included, even if null
+        avatar: user.avatar || null,
         dateOfBirth: user.dateOfBirth,
         gender: user.gender,
         createdAt: user.createdAt,
@@ -332,63 +546,58 @@ const getUserProfile = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Get profile error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
   }
 };
+
 
 // Update user profile
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { username, surname, email, countryCode, mobileNumber, dateOfBirth, gender } = req.body;
+    const { username, surname, countryCode, mobileNumber, dateOfBirth } = req.body;
 
-    // Find the user
+    // Find the user first
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Check if email is being updated and if it's already taken by another user
-    if (email && email !== user.email) {
-      const emailExists = await User.findOne({ email });
-      if (emailExists) {
-        return res.status(400).json({ message: 'Email already exists' });
-      }
-    }
-
-    // Validate mobile number format if provided
+    // Mobile number validation
     if (mobileNumber && !/^\d{10}$/.test(mobileNumber)) {
-      return res.status(400).json({ message: 'Mobile number must be 10 digits' });
+      return res.status(400).json({ success: false, message: 'Mobile number must be 10 digits' });
     }
 
-    // Validate country code format if provided
+    // Country code validation
     if (countryCode && !/^\+\d{1,4}$/.test(countryCode)) {
-      return res.status(400).json({ message: 'Country code must be in format +XX (e.g., +91, +1)' });
+      return res.status(400).json({ success: false, message: 'Country code must be in format +XX (e.g., +91, +1)' });
     }
 
-    // Prepare update object with only provided fields
+    // Prepare update fields - ONLY allowed fields
     const updateFields = {};
     if (username !== undefined) updateFields.username = username;
     if (surname !== undefined) updateFields.surname = surname;
-    if (email !== undefined) updateFields.email = email;
     if (countryCode !== undefined) updateFields.countryCode = countryCode;
     if (mobileNumber !== undefined) updateFields.mobileNumber = mobileNumber;
     if (dateOfBirth !== undefined) updateFields.dateOfBirth = dateOfBirth;
-    if (gender !== undefined) updateFields.gender = gender;
 
-    // Handle avatar upload if file is provided
+    // Avatar update (optional - agar chahiye to rakho, nahi to remove kar do)
     if (req.file) {
       updateFields.avatar = `/uploads/avatars/${req.file.filename}`;
     }
 
     // Update user
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      updateFields,
-      { new: true, runValidators: true }
-    );
+    const updatedUser = await User.findByIdAndUpdate(userId, updateFields, {
+      new: true,
+      runValidators: true
+    });
 
-    res.json({
+    return res.status(200).json({
+      success: true,
       message: 'Profile updated successfully',
       user: {
         _id: updatedUser._id,
@@ -409,9 +618,10 @@ const updateUserProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
 
 const logoutUser = async (req, res) => {
   try {
@@ -440,6 +650,7 @@ module.exports = {
   resendOTP,
   loginUser,
   forgotPassword,
+  verifyPasswordResetOTP,
   resetPassword,
   getUserProfile,
   updateUserProfile,

@@ -48,29 +48,30 @@ const getUsersByRole = async (req, res) => {
     const limitNum = parseInt(limit) || 10;
     const skip = (pageNum - 1) * limitNum;
 
-    // Fields to return
-    const fields = [
-      '_id',
-      'username',
-      'surname',
-      'email',
-      'userRole',
-      'isVerified',
-      'isActive',
-      'countryCode',
-      'mobileNumber',
-      'avatar',
-      'dateOfBirth',
-      'gender',
-      'createdAt'
-    ];
-
-    // Fetch users
-    const users = await User.find(query)
-      .select(fields.join(' '))
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
+    // Fetch users using aggregation to ensure avatar is included even if null
+    const users = await User.aggregate([
+      { $match: query },
+      {
+        $project: {
+          _id: 1,
+          username: 1,
+          surname: 1,
+          email: 1,
+          userRole: 1,
+          isVerified: 1,
+          isActive: 1,
+          countryCode: 1,
+          mobileNumber: 1,
+          avatar: { $ifNull: ['$avatar', null] },
+          dateOfBirth: 1,
+          gender: 1,
+          createdAt: 1
+        }
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limitNum }
+    ]);
 
     // Total count for pagination
     const totalUsers = await User.countDocuments(query);

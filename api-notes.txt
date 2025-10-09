@@ -1,0 +1,180 @@
+# API Documentation Notes for Client Review
+
+## Overview
+यह एक MERN Stack Backend API है जो Node.js, Express, और MongoDB का उपयोग करती है। हमने विभिन्न मॉड्यूल्स के लिए APIs विकसित की हैं, जैसे Authentication, User Management, Products, Blogs, और Teams। नीचे प्रत्येक API endpoint की शॉर्ट नोट्स दी गई हैं, जिसमें HTTP Method, Path, Description, और Authentication Requirement शामिल है।
+
+ये APIs secure हैं (JWT-based authentication के साथ), file uploads (Multer के साथ), और database operations (Mongoose के साथ) को सपोर्ट करती हैं। Base URL: `http://localhost:5000` (या production URL)।
+
+फोकस: Blog Upload और Get APIs पर विशेष ध्यान दिया गया है, लेकिन सभी APIs की डिटेल्स नीचे हैं।
+
+---
+
+## 1. Authentication APIs (/api/auth)
+ये APIs user registration, login, और profile management के लिए हैं। OTP verification और password reset features शामिल हैं।
+
+- **POST /api/auth/register**  
+  Description: नया user register करता है (username, email, password, surname के साथ)। OTP email पर भेजा जाता है।  
+  Authentication: None (Public)  
+  Request Body: { username, email, password, surname }  
+  Response: { message, user details }
+
+- **POST /api/auth/verify-otp**  
+  Description: Registration के बाद OTP verify करता है। User को active करता है।  
+  Authentication: None (Public)  
+  Request Body: { email, otp }  
+  Response: { message, verified: true }
+
+- **POST /api/auth/resend-otp**  
+  Description: OTP expire होने पर नया OTP resend करता है।  
+  Authentication: None (Public)  
+  Request Body: { email }  
+  Response: { message }
+
+- **POST /api/auth/login**  
+  Description: User login करता है और JWT token return करता है।  
+  Authentication: None (Public)  
+  Request Body: { email, password }  
+  Response: { message, token, user }
+
+- **POST /api/auth/forgot-password**  
+  Description: Password reset के लिए OTP email पर भेजता है।  
+  Authentication: None (Public)  
+  Request Body: { email }  
+  Response: { message }
+
+- **POST /api/auth/reset-password**  
+  Description: OTP verify करके password reset करता है।  
+  Authentication: None (Public)  
+  Request Body: { email, otp, newPassword }  
+  Response: { message }
+
+- **GET /api/auth/profile**  
+  Description: Logged-in user का profile details return करता है।  
+  Authentication: Required (Protected - JWT Token)  
+  Response: { user: { username, email, avatar, etc. } }
+
+- **PUT /api/auth/update-profile**  
+  Description: User profile update करता है (avatar upload के साथ)।  
+  Authentication: Required (Protected)  
+  Request Body: { surname, etc. } + File: avatar (optional image)  
+  Response: { message, updatedUser }
+
+- **POST /api/auth/logout**  
+  Description: User logout करता है और token blacklist करता है।  
+  Authentication: Required (Protected)  
+  Request Body: { token }  
+  Response: { message }
+
+---
+
+## 2. User Management APIs (/api/users)
+Admin-level user operations के लिए।
+
+- **GET /api/users/allUser**  
+  Description: Role के आधार पर सभी users list करता है (pagination के साथ)।  
+  Authentication: Required (Protected - Admin role)  
+  Query Params: ?role=admin (optional)  
+  Response: { users: [], total }
+
+- **DELETE /api/users/delete/:userId**  
+  Description: Specific user को delete करता है।  
+  Authentication: Required (Protected - Admin role)  
+  Path Param: userId  
+  Response: { message }
+
+---
+
+
+
+## 4. Blog APIs (/api/blogs) - मुख्य फोकस
+Blog management के लिए complete CRUD, likes, comments, और file upload (thumbnail image)। Status: draft/published। Tags और search support। Pagination और filtering उपलब्ध।
+
+- **POST /api/blogs**  
+  Description: नया blog create करता है (title, content, description, tags, status के साथ)। Thumbnail image upload support (max 10MB, images only)। Author automatically set होता है।  
+  Authentication: Required (Protected)  
+  Request Body: { title, content, description, tags (comma-separated or array), status (draft/published) }  
+  File: thumbnail (optional image)  
+  Response: { message, blog: { _id, title, content, thumbnail, author, tags, etc. } }  
+  *Note: यह Blog Upload API है। Multer middleware images को /uploads/blogs/ में store करता है। Tags को array में convert करता है।*
+
+- **GET /api/blogs**  
+  Description: सभी blogs list करता है (pagination, search, filter by status/author, sorting के साथ)। Author details populated।  
+  Authentication: None (Public)  
+  Query Params: ?page=1&limit=10&status=published&author=id&search=keyword&sortBy=createdAt&sortOrder=desc  
+  Response: { blogs: [], pagination: { currentPage, totalPages, etc. } }  
+  *Note: यह Blog Get API है। Text search MongoDB $text index पर काम करता है। Views count increment नहीं होता।*
+
+
+
+- **PUT /api/blogs/:id**  
+  Description: Existing blog update करता है (thumbnail re-upload optional)। केवल author ही update कर सकता है।  
+  Authentication: Required (Protected)  
+  Path Param: id  
+  Request Body: { title, content, etc. } + File: thumbnail (optional)  
+  Response: { message, blog }
+
+- **DELETE /api/blogs/:id**  
+  Description: Blog को delete करता है। केवल author ही delete कर सकता है।  
+  Authentication: Required (Protected)  
+  Path Param: id  
+  Response: { message }
+
+
+
+- **GET /api/blogs/user/blogs**  
+  Description: Logged-in user के blogs list करता है (pagination, filter by status)।  
+  Authentication: Required (Protected)  
+  Query Params: ?page=1&limit=10&status=draft  
+  Response: { blogs: [], pagination }
+
+*Blog Features Summary:* Upload के समय image validation (images only), unique filename generation। Get APIs में population (author, likes, comments) और error handling। Total 8 endpoints blogs के लिए।
+
+---
+
+## 5. Team APIs (/api/teams)
+Team management के लिए CRUD, photo upload के साथ। Search, filter, pagination।
+
+- **GET /api/teams**  
+  Description: सभी teams list करता है (search, filter, pagination के साथ)।  
+  Authentication: Required (Protected)  
+  Query Params: ?search=teamName&page=1&limit=10  
+  Response: { teams: [], pagination }
+
+- **POST /api/teams**  
+  Description: नया team create करता है (name, description, photo upload के साथ)।  
+  Authentication: Required (Protected)  
+  Request Body: { name, description, members } + File: photo (optional image)  
+  Response: { message, team }
+
+- **PUT /api/teams/:teamId**  
+  Description: Team update करता है (photo re-upload optional)।  
+  Authentication: Required (Protected)  
+  Path Param: teamId  
+  Request Body: { name, description } + File: photo  
+  Response: { message, team }
+
+- **PUT /api/teams/:teamId/status**  
+  Description: Team status toggle करता है (active/inactive)।  
+  Authentication: Required (Protected)  
+  Path Param: teamId  
+  Response: { message }
+
+- **DELETE /api/teams/:teamId**  
+  Description: Team delete करता है।  
+  Authentication: Required (Protected)  
+  Path Param: teamId  
+  Response: { message }
+
+---
+
+## Additional Notes
+- **Security:** सभी protected routes में JWT token required (Authorization header: Bearer <token>)। Auth middleware invalid tokens को blacklist करता है।
+- **File Uploads:** Multer का उपयोग (avatars, blog thumbnails, team photos के लिए)। Files /uploads/ directory में store होती हैं और static serve की जाती हैं।
+- **Database:** MongoDB schemas (User, Blog, Product, Team, etc.) Mongoose के साथ। Relations populated (e.g., blog author)।
+- **Error Handling:** Standard JSON responses (400 for validation, 403 for auth, 404 for not found, 500 for server errors)।
+- **Testing:** Local server `node server.js` से run करें। Postman या frontend से test करें।
+- **Dependencies:** Express, Mongoose, JWT, Multer, Nodemailer (OTP emails के लिए), CORS।
+
+ये सभी APIs production-ready हैं। अगर कोई specific changes या additional features चाहिए, तो बताएं। Total APIs: ~25+ endpoints across modules.
+
+Last Updated: [Current Date]

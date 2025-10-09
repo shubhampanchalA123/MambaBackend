@@ -1,23 +1,23 @@
 const mongoose = require('mongoose');
 
-const blogSchema = new mongoose.Schema({
+const videoSchema = new mongoose.Schema({
   title: {
     type: String,
     required: true,
     trim: true
-  },
-  content: {
-    type: String,
-    required: false
   },
   description: {
     type: String,
     required: false,
     trim: true
   },
-  thumbnail: {
+  video: {
     type: String,
-    required: false
+    required: true
+  },
+  duration: {
+    type: Number, // duration in seconds
+    required: true
   },
   author: {
     type: mongoose.Schema.Types.ObjectId,
@@ -66,6 +66,6 @@ const blogSchema = new mongoose.Schema({
 });
 
 // Index for better search performance
-blogSchema.index({ title: 'text', content: 'text', tags: 'text' });
+videoSchema.index({ title: 'text', description: 'text', tags: 'text' });
 
-module.exports = mongoose.model('Blog', blogSchema);
+module.exports = mongoose.model('Video', videoSchema);

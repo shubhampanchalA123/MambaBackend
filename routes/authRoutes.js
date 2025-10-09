@@ -6,6 +6,7 @@ const {
   resendOTP,
   loginUser,
   forgotPassword,
+  verifyPasswordResetOTP,
   resetPassword,
   getUserProfile,
   updateUserProfile,
@@ -22,6 +23,7 @@ router.post('/login', loginUser);
 
 // Password reset routes
 router.post('/forgot-password', forgotPassword);
+router.post('/verify-password-reset-otp', verifyPasswordResetOTP);
 router.post('/reset-password', resetPassword);
 
 // Protected routes

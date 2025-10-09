@@ -4,25 +4,15 @@ const User = require('../models/User');
 // Create new blog
 const createBlog = async (req, res) => {
   try {
-    const { title, content, description, tags, status } = req.body;
+    const { title, description } = req.body;
     const authorId = req.user._id;
 
     // Validate required fields
-    if (!title || !content) {
+    if (!title) {
       return res.status(400).json({
-        message: 'Title and content are required'
+        success: false, // ✅ Added
+        message: 'Title is required'
       });
-    }
-
-    // Handle tags - convert string to array if needed
-    let tagsArray = [];
-    if (tags) {
-      if (typeof tags === 'string') {
-        // If tags come as comma-separated string
-        tagsArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-      } else if (Array.isArray(tags)) {
-        tagsArray = tags;
-      }
     }
 
     // Handle thumbnail upload
@@ -34,28 +24,23 @@ const createBlog = async (req, res) => {
     // Create blog
     const blog = await Blog.create({
       title,
-      content,
       description: description || '',
       thumbnail: thumbnailPath,
-      author: authorId,
-      tags: tagsArray,
-      status: status || 'draft'
+      author: authorId
     });
 
     // Populate author details
     await blog.populate('author', 'username surname email avatar');
 
     res.status(201).json({
+      success: true, // ✅ Added
       message: 'Blog created successfully',
       blog: {
         _id: blog._id,
         title: blog.title,
-        content: blog.content,
         description: blog.description,
         thumbnail: blog.thumbnail,
         author: blog.author,
-        tags: blog.tags,
-        status: blog.status,
         views: blog.views,
         likes: blog.likes,
         comments: blog.comments,
@@ -65,7 +50,10 @@ const createBlog = async (req, res) => {
     });
   } catch (error) {
     console.error('Create blog error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ 
+      success: false, // ✅ Added
+      message: 'Internal server error' 
+    });
   }
 };
 
@@ -78,8 +66,11 @@ const getBlogs = async (req, res) => {
       status,
       author,
       search,
+      startDate,
+      endDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      tags
     } = req.query;
 
     // Build filter object
@@ -87,9 +78,42 @@ const getBlogs = async (req, res) => {
     if (status) filter.status = status;
     if (author) filter.author = author;
 
+    // Add tags filter
+    if (tags) {
+      const tagsArray = tags.split(',').map(tag => tag.trim());
+      filter.tags = { $in: tagsArray };
+    }
+
     // Add search functionality
     if (search) {
-      filter.$text = { $search: search };
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { content: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Add date range filter
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      filter.createdAt = {
+        $gte: start,
+        $lte: end
+      };
+    } else if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(startDate);
+      end.setHours(23, 59, 59, 999);
+      
+      filter.createdAt = {
+        $gte: start,
+        $lte: end
+      };
     }
 
     // Calculate pagination
@@ -99,30 +123,75 @@ const getBlogs = async (req, res) => {
     const sort = {};
     sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
+    // Fetch blogs
     const blogs = await Blog.find(filter)
       .populate('author', 'username surname email avatar')
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .select('title description content thumbnail author createdAt updatedAt')
+      .lean();
 
+    // Helper function to calculate time ago
+    const getTimeAgo = (date) => {
+      const now = new Date();
+      const createdDate = new Date(date);
+      const diffInMs = now - createdDate;
+      const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+      const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+      const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+      const diffInWeeks = Math.floor(diffInDays / 7);
+      const diffInMonths = Math.floor(diffInDays / 30);
+      const diffInYears = Math.floor(diffInDays / 365);
+
+      if (diffInMinutes < 1) return 'Just now';
+      if (diffInMinutes < 60) return `${diffInMinutes} Min`;
+      if (diffInHours < 24) return `${diffInHours} Hour${diffInHours > 1 ? 's' : ''}`;
+      if (diffInDays < 7) return `${diffInDays} Day${diffInDays > 1 ? 's' : ''}`;
+      if (diffInWeeks < 4) return `${diffInWeeks} Week${diffInWeeks > 1 ? 's' : ''}`;
+      if (diffInMonths < 12) return `${diffInMonths} Month${diffInMonths > 1 ? 's' : ''}`;
+      return `${diffInYears} Year${diffInYears > 1 ? 's' : ''}`;
+    };
+
+    // Add timeAgo field to each blog
+    const blogsWithTime = blogs.map(blog => ({
+      ...blog,
+      time: getTimeAgo(blog.createdAt)
+    }));
+
+    // Get total count for pagination
     const total = await Blog.countDocuments(filter);
 
-    res.json({
-      blogs,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / parseInt(limit)),
-        totalBlogs: total,
-        hasNextPage: parseInt(page) * parseInt(limit) < total,
-        hasPrevPage: parseInt(page) > 1
+    // Prepare pagination info
+    const totalPages = Math.ceil(total / parseInt(limit));
+    const currentPage = parseInt(page);
+
+    // Send success response
+    return res.status(200).json({
+      success: true,
+      message: 'Blogs fetched successfully',
+      data: {
+        blogs: blogsWithTime,
+        pagination: {
+          currentPage,
+          totalPages,
+          totalBlogs: total,
+          limit: parseInt(limit),
+          hasNextPage: currentPage < totalPages,
+          hasPrevPage: currentPage > 1
+        }
       }
     });
+
   } catch (error) {
     console.error('Get blogs error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch blogs',
+      error: error.message
+    });
   }
 };
-
 // Get single blog by ID
 const getBlogById = async (req, res) => {
   try {
@@ -152,7 +221,7 @@ const getBlogById = async (req, res) => {
 const updateBlog = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, content, description, tags, status } = req.body;
+    const { title, description } = req.body;
     const userId = req.user._id;
 
     const blog = await Blog.findById(id);
@@ -165,16 +234,6 @@ const updateBlog = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to update this blog' });
     }
 
-    // Handle tags
-    let tagsArray = blog.tags;
-    if (tags !== undefined) {
-      if (typeof tags === 'string') {
-        tagsArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-      } else if (Array.isArray(tags)) {
-        tagsArray = tags;
-      }
-    }
-
     // Handle thumbnail upload
     let thumbnailPath = blog.thumbnail;
     if (req.file) {
@@ -183,11 +242,8 @@ const updateBlog = async (req, res) => {
 
     // Update fields
     blog.title = title !== undefined ? title : blog.title;
-    blog.content = content !== undefined ? content : blog.content;
     blog.description = description !== undefined ? description : blog.description;
     blog.thumbnail = thumbnailPath;
-    blog.tags = tagsArray;
-    blog.status = status !== undefined ? status : blog.status;
 
     await blog.save();
     await blog.populate('author', 'username surname email avatar');
@@ -197,12 +253,9 @@ const updateBlog = async (req, res) => {
       blog: {
         _id: blog._id,
         title: blog.title,
-        content: blog.content,
         description: blog.description,
         thumbnail: blog.thumbnail,
         author: blog.author,
-        tags: blog.tags,
-        status: blog.status,
         views: blog.views,
         likes: blog.likes,
         comments: blog.comments,
